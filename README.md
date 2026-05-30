@@ -43,7 +43,7 @@ To run the **AetherSwarm AI** console locally on your machine:
 ### Installation
 1.  Clone the repository:
     ```bash
-    git clone https://github.com/bunnyprivvv/aether-swarm-app.git
+    git clone https://github.com/bunnyprivvv/aether-swarm-ai.git
     cd aether-swarm-app
     ```
 2.  Install dependencies:
