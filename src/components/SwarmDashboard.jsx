@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Square, Sliders, Cpu, Activity, Coins, ShieldAlert, Zap, Layers, RefreshCw, Radio } from 'lucide-react';
+import { Play, Square, Sliders, Cpu, Activity, Coins, ShieldAlert, Zap, Layers, RefreshCw, Radio, Link } from 'lucide-react';
 import { haptic } from '../utils/HapticController';
 import { SwarmBlueprints, generateCustomBlueprint } from '../utils/SwarmSimulationEngine';
 import AgentGraph from './AgentGraph';
@@ -15,12 +15,16 @@ export default function SwarmDashboard() {
   const [simSpeed, setSimSpeed] = useState(1500); // ms delay
   const [customPrompt, setCustomPrompt] = useState('');
   
+  // Real-Time Backend Connection States
+  const [isBackendActive, setIsBackendActive] = useState(false);
+  const [backendConfigured, setBackendConfigured] = useState(false);
+  
   // Cyber Shields & Telemetry Intercept States
   const [isManualMode, setIsManualMode] = useState(false);
   const [strictFirewall, setStrictFirewall] = useState(false);
   const [ddosActive, setDdosActive] = useState(false);
   const [gcActive, setGcActive] = useState(false);
-  const [virtualHeapUsage, setVirtualHeapUsage] = useState(0); // 0 = standard dynamic heaps
+  const [virtualHeapUsage, setVirtualHeapUsage] = useState(0); 
   
   // Simulation accumulated data states
   const [simulationLogs, setSimulationLogs] = useState([]);
@@ -32,10 +36,33 @@ export default function SwarmDashboard() {
   const [activeAgent, setActiveAgent] = useState(null);
   const [activeStatus, setActiveStatus] = useState('idle');
 
-  // Triggered when running simulation
+  // Health check to check if local Express backend is active
+  useEffect(() => {
+    const checkBackendHealth = async () => {
+      try {
+        const response = await fetch('http://localhost:3001/api/health');
+        if (response.ok) {
+          const data = await response.json();
+          setIsBackendActive(true);
+          setBackendConfigured(data.api_configured);
+          console.log("⚡ [AETHER_SWARM BACKEND] Online.");
+        }
+      } catch (e) {
+        setIsBackendActive(false);
+        console.log("📡 [AETHER_SWARM BACKEND] Offline. Running on local simulator fallback.");
+      }
+    };
+    checkBackendHealth();
+    // Run health check every 5 seconds
+    const interval = setInterval(checkBackendHealth, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Triggered when running simulation (Mock Fallback Engine)
   useEffect(() => {
     let timer = null;
-    if (isRunning && !isManualMode) {
+    // Only run simulated ticks if backend is offline or if running standard non-custom templates
+    if (isRunning && !isManualMode && !isBackendActive) {
       haptic.init();
       haptic.setHumIntensity(true);
 
@@ -105,7 +132,7 @@ export default function SwarmDashboard() {
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [isRunning, selectedBlueprintKey, simSpeed, currentStepIdx, isManualMode, ddosActive]);
+  }, [isRunning, selectedBlueprintKey, simSpeed, currentStepIdx, isManualMode, ddosActive, isBackendActive]);
 
   // DDoS Telemetry cost and token burst accumulator loop
   useEffect(() => {
@@ -126,6 +153,101 @@ export default function SwarmDashboard() {
       if (ddosInterval) clearInterval(ddosInterval);
     };
   }, [ddosActive, isRunning]);
+
+  // Real-Time Gemini AI Server-Sent Events stream reader
+  const handleRealAISwarm = async (prompt) => {
+    haptic.init();
+    haptic.setHumIntensity(true);
+
+    try {
+      const response = await fetch('http://localhost:3001/api/orchestrate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.message || 'Server execution failed');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let partialChunk = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        partialChunk += decoder.decode(value, { stream: true });
+        const lines = partialChunk.split('\n');
+        partialChunk = lines.pop(); // Keep partial line for next iteration
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('data: ')) {
+            const rawContent = trimmed.substring(6).trim();
+            if (rawContent === '[DONE]') {
+              setIsRunning(false);
+              haptic.playChime();
+              haptic.setHumIntensity(false);
+              setActiveAgent(null);
+              break;
+            }
+
+            const step = JSON.parse(rawContent);
+
+            // Trigger visual transitions
+            setActiveAgent(step.agent);
+            setActiveStatus(step.status);
+            
+            if (step.status === 'error') {
+              haptic.playWarning();
+            } else {
+              haptic.playClick(1500, 0.005);
+            }
+
+            // Sync simulation logs
+            setSimulationLogs(prev => [...prev, step]);
+
+            // Sync virtual workspace code edits
+            if (step.virtualFS) {
+              setVirtualFS(step.virtualFS);
+              const firstFile = Object.keys(step.virtualFS)[0];
+              if (firstFile) setActiveFile(firstFile);
+            } else if (step.codeFile && step.codeContent) {
+              setVirtualFS(prev => ({
+                ...prev,
+                [step.codeFile]: step.codeContent
+              }));
+              setActiveFile(step.codeFile);
+            }
+
+            // Sync system metrics
+            if (step.metrics) {
+              setMetrics(prev => {
+                return {
+                  tokens: ddosActive ? prev.tokens + 14800 : step.metrics.tokens,
+                  cpu: ddosActive ? 95 : step.metrics.cpu,
+                  cost: ddosActive ? prev.cost + 0.11 : step.metrics.cost,
+                  security: step.metrics.security
+                };
+              });
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error(e);
+      haptic.playWarning();
+      setSimulationLogs(prev => [...prev, {
+        agent: 'auditor',
+        status: 'error',
+        log: `[REAL-AI SWITCH ERROR] Could not execute real pipeline.\nDetail: ${e.message}`
+      }]);
+      setIsRunning(false);
+    }
+  };
 
   const handleStartSimulation = () => {
     haptic.init();
@@ -170,9 +292,18 @@ export default function SwarmDashboard() {
         }
       ]);
       setMetrics({ tokens: 0, cpu: 2, cost: 0.00, security: 100 });
+      setIsRunning(true);
+      return;
     }
 
-    setIsRunning(true);
+    // If backend is active and running a Custom Prompt, drive using Gemini API!
+    if (isBackendActive && backendConfigured && selectedBlueprintKey === 'CUSTOM' && customPrompt) {
+      setIsRunning(true);
+      handleRealAISwarm(customPrompt);
+    } else {
+      // Run normal client-side simulation
+      setIsRunning(true);
+    }
   };
 
   const handleStopSimulation = () => {
@@ -231,7 +362,7 @@ export default function SwarmDashboard() {
       agent: 'auditor',
       status: checked ? 'success' : 'idle',
       log: checked 
-        ? `[SHIELD ACTIVE] strict Input validation edge firewall activated. Prompt injection exploits (eval, exec, drop) will be blocked at the outer boundary.`
+        ? `[SHIELD ACTIVE] Strict Input validation edge firewall activated. Prompt injection exploits (eval, exec, drop) will be blocked at the outer boundary.`
         : `[WARNING] Strict edge firewall filters offline. System relying fully on standard client audit sweep routines.`
     }]);
   };
@@ -340,7 +471,18 @@ export default function SwarmDashboard() {
             <h1 style={{ fontSize: '1.2rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '6px' }}>
               AETHER_SWARM <span className="text-amber" style={{ fontWeight: 300 }}>// INTEGRATED CONSOLE</span>
             </h1>
-            <p style={{ fontSize: '0.62rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>SHAGUN_OS v3.5 // AGENTIC SIMULATOR ENGINE ACTIVE</p>
+            <p style={{ fontSize: '0.62rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              SHAGUN_OS v3.5 // AGENTIC SIMULATOR ENGINE ACTIVE 
+              {isBackendActive ? (
+                <span style={{ color: 'var(--color-green)', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                  ● REAL-TIME AI CORE: {backendConfigured ? 'ONLINE (GEMINI)' : 'KEY MISSING'}
+                </span>
+              ) : (
+                <span style={{ color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                  ○ LOCAL REPLICATOR ACTIVE (MOCK FALLBACK)
+                </span>
+              )}
+            </p>
           </div>
         </div>
 
@@ -400,7 +542,7 @@ export default function SwarmDashboard() {
                 <option value="SECURE_JWT_AUTH">Deploy Secure Cryptographic Auth Gateway</option>
                 <option value="HEMASCAN_PIPELINE">Optimize HemaScan Pathology Pipeline</option>
                 <option value="DECENTRALIZED_PAY">Formulate Decentralized Web3 Transaction Sync</option>
-                <option value="CUSTOM">Custom Orchestration Prompt Blueprint</option>
+                <option value="CUSTOM">Custom Orchestration Prompt Blueprint {isBackendActive && '(Real AI API)'}</option>
               </select>
             </div>
 
@@ -415,7 +557,7 @@ export default function SwarmDashboard() {
                   value={customPrompt}
                   onChange={(e) => setCustomPrompt(e.target.value)}
                   disabled={isRunning}
-                  placeholder="e.g. Optimize Postgres query logs, Compile a model training container..."
+                  placeholder={isBackendActive ? "e.g. Optimize Postgres query, Audit smart contract..." : "e.g. Create simple router gateway..."}
                   className="input-tech"
                 />
               </div>
@@ -425,7 +567,7 @@ export default function SwarmDashboard() {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.8rem', alignItems: 'center' }}>
               {/* Simulation speed slider */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.6rem', color: 'var(--text-secondary)' }}>
+                <div style={{ display: 'flex', justifyContext: 'space-between', fontSize: '0.6rem', color: 'var(--text-secondary)' }}>
                   <span>SIM INTERVAL</span>
                   <span>{simSpeed}ms</span>
                 </div>
@@ -436,6 +578,7 @@ export default function SwarmDashboard() {
                   step="100"
                   value={simSpeed}
                   onChange={(e) => setSimSpeed(parseInt(e.target.value))}
+                  disabled={isRunning && isBackendActive && selectedBlueprintKey === 'CUSTOM'}
                   style={{ width: '120px', cursor: 'ew-resize', accentColor: 'var(--color-amber)' }}
                 />
               </div>
@@ -507,6 +650,7 @@ export default function SwarmDashboard() {
                   setIsManualMode(e.target.checked);
                   handleResetWorkspace();
                 }}
+                disabled={isBackendActive && isRunning}
                 style={{ accentColor: 'var(--color-amber)', cursor: 'pointer' }}
               />
               <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: isManualMode ? 'var(--color-gold)' : 'var(--text-secondary)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '2px' }}>
