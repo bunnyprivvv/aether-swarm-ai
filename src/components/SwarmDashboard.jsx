@@ -36,11 +36,16 @@ export default function SwarmDashboard() {
   const [activeAgent, setActiveAgent] = useState(null);
   const [activeStatus, setActiveStatus] = useState('idle');
 
-  // Health check to check if local Express backend is active
+  // Dynamic API Base detection for hybrid local development vs Vercel Serverless
+  const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? 'http://localhost:3001'
+    : '';
+
+  // Health check to check if local Express backend or Vercel Serverless is active
   useEffect(() => {
     const checkBackendHealth = async () => {
       try {
-        const response = await fetch('http://localhost:3001/api/health');
+        const response = await fetch(`${API_BASE}/api/health`);
         if (response.ok) {
           const data = await response.json();
           setIsBackendActive(true);
@@ -56,7 +61,7 @@ export default function SwarmDashboard() {
     // Run health check every 5 seconds
     const interval = setInterval(checkBackendHealth, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [API_BASE]);
 
   // Triggered when running simulation (Mock Fallback Engine)
   useEffect(() => {
@@ -160,7 +165,7 @@ export default function SwarmDashboard() {
     haptic.setHumIntensity(true);
 
     try {
-      const response = await fetch('http://localhost:3001/api/orchestrate', {
+      const response = await fetch(`${API_BASE}/api/orchestrate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt })
