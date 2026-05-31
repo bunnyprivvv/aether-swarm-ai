@@ -113,6 +113,31 @@ class HapticController {
     osc.stop(now + 0.2);
   }
 
+  playGCSweep() {
+    this.init();
+    if (!this.ctx) return;
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume();
+    }
+
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(180, now);
+    osc.frequency.exponentialRampToValueAtTime(1400, now + 0.35); // Satisfying upwards pitch sweep
+
+    gain.gain.setValueAtTime(0.05, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+
+    osc.start();
+    osc.stop(now + 0.35);
+  }
+
   startAmbientHum() {
     if (!this.ctx || this.ambientHumOsc) return;
 

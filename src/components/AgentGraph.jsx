@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Network, ShieldAlert, Cpu, Award, Zap } from 'lucide-react';
 import { haptic } from '../utils/HapticController';
 
-export default function AgentGraph({ activeAgent, activeStatus }) {
+export default function AgentGraph({ activeAgent, activeStatus, isManualMode, onManualAction }) {
   const [hoveredNode, setHoveredNode] = useState(null);
 
   // Nodes arrangement coordinates in percentage
@@ -52,6 +52,9 @@ export default function AgentGraph({ activeAgent, activeStatus }) {
   const handleNodeClick = (nodeId) => {
     haptic.init();
     haptic.playClick(2200, 0.01);
+    if (isManualMode && onManualAction) {
+      onManualAction(nodeId);
+    }
   };
 
   const handleNodeMouseEnter = (nodeId) => {
@@ -67,7 +70,23 @@ export default function AgentGraph({ activeAgent, activeStatus }) {
           <Network size={16} className="text-amber" />
           Live Swarm Node Topology
         </h3>
-        <span className="panel-subtitle">60FPS VECTOR RELAY ACTIVE</span>
+        {isManualMode ? (
+          <span style={{ 
+            color: 'var(--color-gold)', 
+            fontFamily: 'var(--font-mono)', 
+            fontSize: '0.65rem', 
+            fontWeight: 'bold', 
+            border: '1px solid var(--color-gold)', 
+            padding: '2px 8px', 
+            borderRadius: '4px', 
+            background: 'rgba(255, 190, 11, 0.05)',
+            textShadow: '0 0 6px rgba(255, 190, 11, 0.2)'
+          }}>
+            MANUAL NODE INTERCEPT ACTIVE
+          </span>
+        ) : (
+          <span className="panel-subtitle">60FPS VECTOR RELAY ACTIVE</span>
+        )}
       </div>
 
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.02)' }}>

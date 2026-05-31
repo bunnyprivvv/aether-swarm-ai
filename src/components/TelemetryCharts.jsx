@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Activity, ShieldAlert, Cpu } from 'lucide-react';
 
-export default function TelemetryCharts({ isRunning, currentMetrics = {} }) {
+export default function TelemetryCharts({ isRunning, currentMetrics = {}, ddosActive = false, heapOverride = 0 }) {
   const [timeline, setTimeline] = useState([30, 45, 35, 60, 50, 40, 55, 45, 50, 60]);
   const [coreLoads, setCoreLoads] = useState([12, 18, 8, 14]);
 
@@ -14,23 +14,34 @@ export default function TelemetryCharts({ isRunning, currentMetrics = {} }) {
 
     const interval = setInterval(() => {
       // Fluctuate core usage loads
-      setCoreLoads([
-        Math.floor(Math.random() * 45) + 30,
-        Math.floor(Math.random() * 55) + 40,
-        Math.floor(Math.random() * 30) + 20,
-        Math.floor(Math.random() * 40) + 25
-      ]);
+      if (ddosActive) {
+        setCoreLoads([
+          Math.floor(Math.random() * 8) + 90,
+          Math.floor(Math.random() * 6) + 92,
+          Math.floor(Math.random() * 12) + 85,
+          Math.floor(Math.random() * 10) + 88
+        ]);
+      } else {
+        setCoreLoads([
+          Math.floor(Math.random() * 45) + 30,
+          Math.floor(Math.random() * 55) + 40,
+          Math.floor(Math.random() * 30) + 20,
+          Math.floor(Math.random() * 40) + 25
+        ]);
+      }
 
-      // Shift timeline values slightly
+      // Shift timeline values slightly (much higher peaks when DDoS is active)
       setTimeline(prev => {
         const next = [...prev.slice(1)];
-        next.push(Math.floor(Math.random() * 50) + 35);
+        const cap = ddosActive ? 95 : 55;
+        const base = ddosActive ? 85 : 30;
+        next.push(Math.floor(Math.random() * (cap - base)) + base);
         return next;
       });
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [isRunning]);
+  }, [isRunning, ddosActive]);
 
   const securityRating = currentMetrics.security || 100;
   
@@ -63,7 +74,7 @@ export default function TelemetryCharts({ isRunning, currentMetrics = {} }) {
           </svg>
         </div>
         <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', display: 'flex', justifyContent: 'space-between', marginTop: '0.4rem' }}>
-          <span>VELOCITY: {isRunning ? '4.8k tokens/s' : '0.0k tokens/s'}</span>
+          <span>VELOCITY: {ddosActive ? '95.4k tokens/s' : isRunning ? '4.8k tokens/s' : '0.0k tokens/s'}</span>
           <span>99.98% ACC</span>
         </div>
       </div>

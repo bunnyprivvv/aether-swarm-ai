@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Square, Sliders, Cpu, Activity, Coins, ShieldAlert, Zap, Layers, RefreshCw } from 'lucide-react';
+import { Play, Square, Sliders, Cpu, Activity, Coins, ShieldAlert, Zap, Layers, RefreshCw, Radio } from 'lucide-react';
 import { haptic } from '../utils/HapticController';
 import { SwarmBlueprints, generateCustomBlueprint } from '../utils/SwarmSimulationEngine';
 import AgentGraph from './AgentGraph';
@@ -15,6 +15,13 @@ export default function SwarmDashboard() {
   const [simSpeed, setSimSpeed] = useState(1500); // ms delay
   const [customPrompt, setCustomPrompt] = useState('');
   
+  // Cyber Shields & Telemetry Intercept States
+  const [isManualMode, setIsManualMode] = useState(false);
+  const [strictFirewall, setStrictFirewall] = useState(false);
+  const [ddosActive, setDdosActive] = useState(false);
+  const [gcActive, setGcActive] = useState(false);
+  const [virtualHeapUsage, setVirtualHeapUsage] = useState(0); // 0 = standard dynamic heaps
+  
   // Simulation accumulated data states
   const [simulationLogs, setSimulationLogs] = useState([]);
   const [virtualFS, setVirtualFS] = useState({});
@@ -28,7 +35,7 @@ export default function SwarmDashboard() {
   // Triggered when running simulation
   useEffect(() => {
     let timer = null;
-    if (isRunning) {
+    if (isRunning && !isManualMode) {
       haptic.init();
       haptic.setHumIntensity(true);
 
@@ -70,8 +77,16 @@ export default function SwarmDashboard() {
           // Append to log stream
           setSimulationLogs((prevLogs) => [...prevLogs, step]);
 
-          // Update telemetry metrics
-          setMetrics(step.metrics);
+          // Update telemetry metrics (with conditional modifications if DDoS is active)
+          setMetrics(prev => {
+            const baseSecurity = step.metrics.security;
+            return {
+              tokens: ddosActive ? prev.tokens + 15200 : step.metrics.tokens,
+              cpu: ddosActive ? 94 : step.metrics.cpu,
+              cost: ddosActive ? prev.cost + 0.12 : step.metrics.cost,
+              security: baseSecurity
+            };
+          });
 
           return nextIdx;
         });
@@ -90,12 +105,54 @@ export default function SwarmDashboard() {
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [isRunning, selectedBlueprintKey, simSpeed, currentStepIdx]);
+  }, [isRunning, selectedBlueprintKey, simSpeed, currentStepIdx, isManualMode, ddosActive]);
+
+  // DDoS Telemetry cost and token burst accumulator loop
+  useEffect(() => {
+    let ddosInterval = null;
+    if (ddosActive && isRunning) {
+      haptic.setHumIntensity(true);
+      ddosInterval = setInterval(() => {
+        setMetrics(prev => ({
+          ...prev,
+          tokens: prev.tokens + Math.floor(Math.random() * 8500) + 4000,
+          cost: prev.cost + Math.random() * 0.08 + 0.03,
+          cpu: Math.floor(Math.random() * 8) + 90 // Spikes CPU load
+        }));
+        haptic.playClick(1000, 0.005);
+      }, 500);
+    }
+    return () => {
+      if (ddosInterval) clearInterval(ddosInterval);
+    };
+  }, [ddosActive, isRunning]);
 
   const handleStartSimulation = () => {
     haptic.init();
     haptic.playClick(2000, 0.015);
     
+    // Check firewall rule for prompt injections
+    if (strictFirewall && selectedBlueprintKey === 'CUSTOM' && customPrompt) {
+      const suspicious = ['eval', 'exec', 'drop', 'delete', 'inject', 'hack', 'rm -rf', 'destroy', 'vulnerability', 'exploit'];
+      const hasThreat = suspicious.some(word => customPrompt.toLowerCase().includes(word));
+      
+      if (hasThreat) {
+        haptic.playWarning();
+        setSimulationLogs([
+          {
+            agent: 'auditor',
+            status: 'error',
+            log: `[EDGE VALIDATION FIREWALL SHIELD] INTERCEPT TRIGGERED!\nThreat identified in query prompt: "${customPrompt}"\nReason: Prompt matches Command Injection / Remote Code Execution vector check.\nResult: Session closed, query neutralized instantly. Swarm execution aborted successfully.`
+          }
+        ]);
+        setMetrics({ tokens: 0, cpu: 98, cost: 0.00, security: 100 });
+        setActiveAgent('auditor');
+        setActiveStatus('error');
+        setIsRunning(false);
+        return;
+      }
+    }
+
     // Reset simulation pipeline
     setSimulationLogs([]);
     setVirtualFS({});
@@ -103,6 +160,18 @@ export default function SwarmDashboard() {
     setCurrentStepIdx(-1);
     setMetrics({ tokens: 0, cpu: 0, cost: 0.00, security: 100 });
     
+    if (isManualMode) {
+      // Manual mode initialization log
+      setSimulationLogs([
+        {
+          agent: 'architect',
+          status: 'success',
+          log: `[MANUAL CONTROL STATE ACTIVE] Swarm running on user-directed operations. Click agent nodes in the visual network above to compile custom processes.`
+        }
+      ]);
+      setMetrics({ tokens: 0, cpu: 2, cost: 0.00, security: 100 });
+    }
+
     setIsRunning(true);
   };
 
@@ -129,6 +198,136 @@ export default function SwarmDashboard() {
     haptic.playClick(1800, 0.008);
     setSelectedBlueprintKey(e.target.value);
     handleResetWorkspace();
+  };
+
+  // 1. DDoS Toggle Action
+  const handleToggleDdos = (checked) => {
+    haptic.init();
+    if (checked) {
+      haptic.playWarning();
+      setDdosActive(true);
+      setSimulationLogs(prev => [...prev, {
+        agent: 'auditor',
+        status: 'error',
+        log: `[ALARM] DDoS SURGE INTRUSION SIMULATOR DEPLOYED! \nIncoming traffic load leaping to 95.4k tokens/second. CPU threshold breaching 90% load. Network scrubbers shielding pipeline...`
+      }]);
+    } else {
+      haptic.playClick(1500, 0.01);
+      setDdosActive(false);
+      setSimulationLogs(prev => [...prev, {
+        agent: 'auditor',
+        status: 'success',
+        log: `[RESOLVED] DDoS surge simulation terminated. Traffic velocity returning to standard thresholds. CPU loads cooling down.`
+      }]);
+    }
+  };
+
+  // 2. Strict Edge Firewall Toggle Action
+  const handleToggleFirewall = (checked) => {
+    haptic.init();
+    haptic.playClick(checked ? 2200 : 1200, 0.01);
+    setStrictFirewall(checked);
+    setSimulationLogs(prev => [...prev, {
+      agent: 'auditor',
+      status: checked ? 'success' : 'idle',
+      log: checked 
+        ? `[SHIELD ACTIVE] strict Input validation edge firewall activated. Prompt injection exploits (eval, exec, drop) will be blocked at the outer boundary.`
+        : `[WARNING] Strict edge firewall filters offline. System relying fully on standard client audit sweep routines.`
+    }]);
+  };
+
+  // 3. Manual Node Operations Callback from AgentGraph
+  const handleManualAgentAction = (agentId) => {
+    if (!isManualMode || !isRunning) {
+      haptic.playClick(2100, 0.005);
+      return;
+    }
+    
+    haptic.init();
+    setActiveAgent(agentId);
+    setActiveStatus('thinking');
+
+    setTimeout(() => {
+      setActiveStatus('success');
+    }, 650);
+
+    const timeString = new Date().toTimeString().split(' ')[0];
+
+    switch (agentId) {
+      case 'architect':
+        haptic.playClick(1800, 0.015);
+        setSimulationLogs(prev => [...prev, {
+          agent: 'architect',
+          status: 'success',
+          log: `[MANUAL DECK ACTION] Prime-Architect synchronized workspace schema map at ${timeString}. Mapping active parameters.`
+        }]);
+        setMetrics(prev => ({ ...prev, tokens: prev.tokens + 1200, cpu: 28, cost: prev.cost + 0.024 }));
+        break;
+      case 'coder':
+        haptic.playClick(1500, 0.02);
+        setSimulationLogs(prev => [...prev, {
+          agent: 'coder',
+          status: 'writing',
+          log: `[MANUAL DECK ACTION] Sentinel-Code synthesized manual code patch 'manual_block.js' at ${timeString}.`
+        }]);
+        setVirtualFS(prev => ({
+          ...prev,
+          'manual_block.js': {
+            action: 'add',
+            lines: [
+              { num: 1, type: 'normal', text: '// User directed manual code patch' },
+              { num: 2, type: 'added', text: 'function manualOverrideTask() {' },
+              { num: 3, type: 'added', text: '  console.log("Forced telemetry override confirmed");' },
+              { num: 4, type: 'added', text: '}' },
+              { num: 5, text: 'module.exports = { manualOverrideTask };' }
+            ]
+          }
+        }));
+        setActiveFile('manual_block.js');
+        setMetrics(prev => ({ ...prev, tokens: prev.tokens + 3100, cpu: 62, cost: prev.cost + 0.062 }));
+        break;
+      case 'auditor':
+        haptic.playWarning();
+        setSimulationLogs(prev => [...prev, {
+          agent: 'auditor',
+          status: 'success',
+          log: `[MANUAL DECK ACTION] Cypher-Audit performed forced security CVE sweep on workspace buffers. Vulnerabilities: 0.`
+        }]);
+        setMetrics(prev => ({ ...prev, tokens: prev.tokens + 1400, cpu: 38, cost: prev.cost + 0.028, security: 100 }));
+        break;
+      case 'qa':
+        haptic.playChime();
+        setSimulationLogs(prev => [...prev, {
+          agent: 'qa',
+          status: 'success',
+          log: `[MANUAL DECK ACTION] Nexus-QA executed integration tests. ✔ 6/6 dynamic test scenarios passed perfectly at ${timeString}.`
+        }]);
+        setMetrics(prev => ({ ...prev, tokens: prev.tokens + 950, cpu: 12, cost: prev.cost + 0.019 }));
+        break;
+      default:
+        break;
+    }
+  };
+
+  // 4. Garbage Collector Recycle Heap Action
+  const handleRunGC = () => {
+    haptic.init();
+    haptic.playGCSweep();
+    setGcActive(true);
+    
+    // Virtual heap recycle modifier
+    setVirtualHeapUsage(12); // Drop heap loading to min values
+
+    setSimulationLogs(prev => [...prev, {
+      agent: 'architect',
+      status: 'success',
+      log: `[GARBAGE COLLECTOR PURGE] Manual system heap flush initialized. Cleared 284.2MB of unreferenced memory allocations. Process memory compacted.`
+    }]);
+
+    setTimeout(() => {
+      setGcActive(false);
+      setVirtualHeapUsage(0); // Restore normal dynamics
+    }, 2000);
   };
 
   return (
@@ -262,6 +461,79 @@ export default function SwarmDashboard() {
               </button>
             </div>
           </div>
+
+          {/* Interactive Cyber Shield Controls Deck */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.5rem', borderTop: '1px solid var(--border-color)', paddingTop: '1.25rem', marginTop: '0.5rem', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Radio size={14} className="text-amber animate-pulse" />
+              <span style={{ fontSize: '0.65rem', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--text-secondary)' }}>
+                DIAGNOSTICS & CYBER SHIELDS:
+              </span>
+            </div>
+            
+            {/* DDoS surge simulator */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', userSelect: 'none' }}>
+              <input 
+                type="checkbox" 
+                checked={ddosActive} 
+                onChange={(e) => handleToggleDdos(e.target.checked)}
+                style={{ accentColor: 'var(--color-amber)', cursor: 'pointer' }}
+              />
+              <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: ddosActive ? 'var(--color-red)' : 'var(--text-secondary)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '2px' }}>
+                <Zap size={12} /> DDoS SURGE ACCELERATOR
+              </span>
+            </label>
+
+            {/* Edge firewall filter */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', userSelect: 'none' }}>
+              <input 
+                type="checkbox" 
+                checked={strictFirewall} 
+                onChange={(e) => handleToggleFirewall(e.target.checked)}
+                style={{ accentColor: 'var(--color-amber)', cursor: 'pointer' }}
+              />
+              <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: strictFirewall ? 'var(--color-green)' : 'var(--text-secondary)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '2px' }}>
+                <ShieldAlert size={12} /> EDGE FIREWALL SHIELD
+              </span>
+            </label>
+
+            {/* Manual Override control mode */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', userSelect: 'none' }}>
+              <input 
+                type="checkbox" 
+                checked={isManualMode} 
+                onChange={(e) => {
+                  haptic.playClick(2100, 0.01);
+                  setIsManualMode(e.target.checked);
+                  handleResetWorkspace();
+                }}
+                style={{ accentColor: 'var(--color-amber)', cursor: 'pointer' }}
+              />
+              <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: isManualMode ? 'var(--color-gold)' : 'var(--text-secondary)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '2px' }}>
+                <Cpu size={12} /> MANUAL OVERRIDE DECK
+              </span>
+            </label>
+
+            {/* Manual Garbage collector recycle button */}
+            <button 
+              onClick={handleRunGC}
+              className="btn-secondary"
+              style={{
+                padding: '0.35rem 0.8rem',
+                fontSize: '0.7rem',
+                borderRadius: '4px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginLeft: 'auto',
+                borderColor: 'var(--color-amber-glow)',
+                color: 'var(--color-amber-bright)',
+                background: 'rgba(255, 140, 0, 0.03)'
+              }}
+            >
+              <RefreshCw size={12} className={gcActive ? 'animate-spin' : ''} /> PURGE SYSTEM HEAP (GC)
+            </button>
+          </div>
         </div>
       </section>
 
@@ -269,7 +541,12 @@ export default function SwarmDashboard() {
       <div className="dashboard-grid">
         {/* Left Side: Agent Topology Map & Logging thought feed */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          <AgentGraph activeAgent={activeAgent} activeStatus={activeStatus} />
+          <AgentGraph 
+            activeAgent={activeAgent} 
+            activeStatus={activeStatus} 
+            isManualMode={isManualMode}
+            onManualAction={handleManualAgentAction}
+          />
           <TerminalFeed logs={simulationLogs} />
         </div>
 
@@ -284,7 +561,12 @@ export default function SwarmDashboard() {
                 Integrated Swarm Telemetry Diagnostics
               </h3>
             </div>
-            <TelemetryCharts isRunning={isRunning} currentMetrics={metrics} />
+            <TelemetryCharts 
+              isRunning={isRunning} 
+              currentMetrics={metrics} 
+              ddosActive={ddosActive}
+              heapOverride={virtualHeapUsage}
+            />
           </div>
         </div>
       </div>
